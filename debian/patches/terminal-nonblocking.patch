@@ -1,0 +1,134 @@
+Author: Kel Modderman <kelvmod@gmail.com>
+Description: Keep the terminal fd non-blocking.
+ ply_terminal_open() opens the tty O_NONBLOCK, then makes it blocking. Two
+ readers share that fd, so a read with no data left blocks the event loop.
+ PID 1 then blocks writing /dev/console into plymouth's full pty, and boot
+ hangs after switch-root until a key is pressed. Leave the fd non-blocking
+ and write through a loop that waits briefly on EAGAIN.
+Bug-Debian: https://bugs.debian.org/1145446
+Forwarded: no
+Last-Update: 2026-10-01
+
+--- a/src/libply-splash-core/ply-terminal.c	2024-01-05 07:08:14.000000000 +1000
++++ b/src/libply-splash-core/ply-terminal.c	2026-09-09 20:16:18.701708727 +1000
+@@ -24,6 +24,7 @@
+ #include <assert.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#include <poll.h>
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -364,10 +365,61 @@
+         size = vasprintf (&string, format, args);
+         va_end (args);
+ 
+-        write (terminal->fd, string, size);
++        if (size > 0)
++                ply_terminal_write_bytes (terminal, string, size);
+         free (string);
+ }
+ 
++/* The terminal fd is non-blocking so a read can never stall the event
++ * loop (and with it the console redirect that PID 1 writes into).  Output
++ * therefore has to cope with EAGAIN: wait for room, but never for long, a
++ * wedged console must not stall the daemon either.
++ */
++bool
++ply_terminal_write_bytes (ply_terminal_t *terminal,
++                          const char     *bytes,
++                          size_t          size)
++{
++        size_t written = 0;
++        int waits = 0;
++
++        assert (terminal != NULL);
++
++        if (terminal->fd < 0)
++                return false;
++
++        while (written < size) {
++                ssize_t n;
++
++                n = write (terminal->fd, bytes + written, size - written);
++
++                if (n > 0) {
++                        written += n;
++                        continue;
++                }
++
++                if (n < 0 && errno == EINTR)
++                        continue;
++
++                if (n < 0 && errno == EAGAIN) {
++                        struct pollfd poll_data;
++
++                        if (++waits > 10)
++                                break;
++
++                        poll_data.fd = terminal->fd;
++                        poll_data.events = POLLOUT;
++                        poll_data.revents = 0;
++                        poll (&poll_data, 1, 100);
++                        continue;
++                }
++
++                break;
++        }
++
++        return written == size;
++}
++
+ static void
+ ply_terminal_reopen_device (ply_terminal_t *terminal)
+ {
+@@ -618,8 +670,6 @@
+                 return PLY_TERMINAL_OPEN_RESULT_FAILURE;
+         }
+ 
+-        ply_set_fd_as_blocking (terminal->fd);
+-
+         terminal->fd_watch = ply_event_loop_watch_fd (terminal->loop, terminal->fd,
+                                                       PLY_EVENT_LOOP_FD_STATUS_HAS_DATA,
+                                                       (ply_event_handler_t) on_tty_input,
+--- a/src/libply-splash-core/ply-terminal.h	2024-01-05 07:08:14.000000000 +1000
++++ b/src/libply-splash-core/ply-terminal.h	2026-09-09 20:16:18.701918825 +1000
+@@ -77,6 +77,9 @@
+ void ply_terminal_write (ply_terminal_t *terminal,
+                          const char     *format,
+                          ...);
++bool ply_terminal_write_bytes (ply_terminal_t *terminal,
++                               const char     *bytes,
++                               size_t          size);
+ int ply_terminal_get_number_of_columns (ply_terminal_t *terminal);
+ int ply_terminal_get_number_of_rows (ply_terminal_t *terminal);
+ 
+--- a/src/libply-splash-core/ply-text-display.c	2024-01-05 07:08:14.000000000 +1000
++++ b/src/libply-splash-core/ply-text-display.c	2026-09-09 20:16:18.701966623 +1000
+@@ -231,22 +231,20 @@
+                         const char         *format,
+                         ...)
+ {
+-        int fd;
+-
+         va_list args;
+         char *string;
++        int size;
+ 
+         assert (display != NULL);
+         assert (format != NULL);
+ 
+-        fd = ply_terminal_get_fd (display->terminal);
+-
+         string = NULL;
+         va_start (args, format);
+-        vasprintf (&string, format, args);
++        size = vasprintf (&string, format, args);
+         va_end (args);
+ 
+-        write (fd, string, strlen (string));
++        if (size > 0)
++                ply_terminal_write_bytes (display->terminal, string, size);
+         free (string);
+ }
+ 

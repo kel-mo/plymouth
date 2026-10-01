@@ -1,3 +1,11 @@
+plymouth (26.134.222-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Keep the terminal fd non-blocking, so boot no longer hangs after
+    switch-root until a key is pressed (Closes: #1145446).
+
+ -- Kel Modderman <kelvmod@gmail.com>  Thu, 01 Oct 2026 15:18:23 +1000
+
 plymouth (26.134.222-1) unstable; urgency=medium
 
   * New upstream release
