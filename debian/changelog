@@ -1,3 +1,12 @@
+plymouth (26.134.222-1.2) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * terminal-nonblocking.patch: give up writing only after a second
+    without progress, so long output to a slow terminal is no longer cut
+    short.
+
+ -- Kel Modderman <kelvmod@gmail.com>  Sat, 10 Oct 2026 18:56:24 +1000
+
 plymouth (26.134.222-1.1) unstable; urgency=medium
 
   * Non-maintainer upload.
