@@ -1,0 +1,29 @@
+Description: Ignore events for stopped sources.
+ A timeout handler could stop a source after epoll_wait() reported it but
+ before its event was dispatched; dispatch then ran FIONREAD on the closed
+ fd, took it for a disconnect and aborted on an assert. Reachable at quit
+ when the splash's idle timeout closes the terminal as getty hangs up the
+ same VT.
+Origin: upstream, https://gitlab.freedesktop.org/plymouth/plymouth/-/commit/11a90cd3a8a6316f50993203127c39a3160c63d9
+Applied-Upstream: 11a90cd3
+Last-Update: 2026-10-10
+
+--- a/src/libply/ply-event-loop.c
++++ b/src/libply/ply-event-loop.c
+@@ -1259,6 +1259,16 @@
+                 bool is_disconnected;
+ 
+                 source = (ply_event_source_t *) (events[i].data.ptr);
++
++                /* A timeout handler can stop a source after epoll_wait ()
++                 * reports it but before its event is dispatched.
++                 */
++                if (!source->is_getting_polled) {
++                        if (loop->should_exit)
++                                break;
++                        continue;
++                }
++
+                 status = ply_event_loop_get_fd_status_from_poll_mask (events[i].events);
+ 
+                 is_disconnected = false;

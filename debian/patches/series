@@ -6,6 +6,8 @@ fallback-etc-default-keyboard.patch
 restore-ply_key_file_get_long.patch
 terminal-nonblocking.patch
 buffer-reach-capacity-limit.patch
+event-loop-ignore-stopped-sources.patch
 buffer-append-capacity.patch
 event-loop-dispatch-snapshot.patch
+terminal-detach-on-loop-exit.patch
 terminal-write-queue.patch

@@ -22,23 +22,23 @@ Last-Update: 2026-10-10
          ply_terminal_color_t foreground_color;
          ply_terminal_color_t background_color;
  
-@@ -117,6 +119,7 @@
- } ply_terminal_open_result_t;
+@@ -118,6 +120,7 @@
  
  static ply_terminal_open_result_t ply_terminal_open_device (ply_terminal_t *terminal);
+ static void ply_terminal_detach_from_event_loop (ply_terminal_t *terminal);
 +static void ply_terminal_flush_output (ply_terminal_t *terminal);
  
  ply_terminal_t *
  ply_terminal_new (const char *device_name,
-@@ -131,6 +134,7 @@
-         terminal->loop = ply_event_loop_get_default ();
+@@ -136,6 +139,7 @@
+                                        terminal);
          terminal->vt_change_closures = ply_list_new ();
          terminal->input_closures = ply_list_new ();
 +        terminal->output_buffer = ply_buffer_new ();
  
          if (strncmp (device_name, "/dev/", strlen ("/dev/")) == 0)
                  terminal->name = strdup (device_name);
-@@ -266,6 +270,8 @@
+@@ -271,6 +275,8 @@
          /* Make \n return go to the beginning of the next line */
          term_attributes.c_oflag |= ONLCR | OPOST;
  
@@ -47,7 +47,7 @@ Last-Update: 2026-10-10
          if (tcsetattr (terminal->fd, TCSANOW, &term_attributes) != 0)
                  return false;
  
-@@ -314,6 +320,8 @@
+@@ -319,6 +325,8 @@
                  term_attributes.c_oflag |= OPOST;
                  term_attributes.c_lflag |= ECHO | ICANON | ISIG | IEXTEN;
  
@@ -56,7 +56,7 @@ Last-Update: 2026-10-10
                  if (tcsetattr (terminal->fd, TCSANOW, &term_attributes) != 0)
                          return false;
  
-@@ -322,6 +330,8 @@
+@@ -327,6 +335,8 @@
                  return true;
          }
  
@@ -65,7 +65,7 @@ Last-Update: 2026-10-10
          if (tcsetattr (terminal->fd, TCSANOW, &terminal->original_term_attributes) != 0)
                  return false;
  
-@@ -370,60 +380,149 @@
+@@ -375,60 +385,149 @@
          free (string);
  }
  
@@ -253,7 +253,7 @@ Last-Update: 2026-10-10
  }
  
  static void
-@@ -487,6 +586,8 @@
+@@ -492,6 +591,8 @@
  {
          ply_trace ("tty disconnected (fd %d)", terminal->fd);
          terminal->fd_watch = NULL;
@@ -262,18 +262,16 @@ Last-Update: 2026-10-10
          terminal->fd = -1;
          terminal->number_of_reopen_tries = 0;
  
-@@ -770,6 +871,10 @@
+@@ -775,6 +876,8 @@
  
          terminal->is_open = false;
  
 +        ply_terminal_flush_output (terminal);
-+        ply_terminal_stop_writing_queued_output (terminal);
-+        ply_buffer_clear (terminal->output_buffer);
 +
          ply_terminal_stop_watching_for_vt_changes (terminal);
  
          ply_trace ("restoring color palette");
-@@ -862,6 +967,8 @@
+@@ -867,6 +970,8 @@
                  break;
  
          case PLY_TERMINAL_MODE_GRAPHICS:
@@ -282,7 +280,7 @@ Last-Update: 2026-10-10
                  if (ioctl (terminal->fd, KDSETMODE, KD_GRAPHICS) < 0)
                          return;
                  break;
-@@ -884,6 +991,7 @@
+@@ -889,6 +994,7 @@
          assert (terminal != NULL);
          terminal->loop = NULL;
          terminal->fd_watch = NULL;
@@ -290,7 +288,7 @@ Last-Update: 2026-10-10
  }
  
  static void
-@@ -948,6 +1056,7 @@
+@@ -953,6 +1059,7 @@
  
          free_vt_change_closures (terminal);
          free_input_closures (terminal);

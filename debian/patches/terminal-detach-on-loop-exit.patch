@@ -1,0 +1,31 @@
+Author: Kel Modderman <kelvmod@gmail.com>
+Description: Detach from the event loop when it exits.
+ ply_terminal_free() stopped watching for the loop's exit, but nothing
+ started watching, so a terminal closed after the loop returned stopped
+ watching freed fd watches. terminal-write-queue.patch keeps a second
+ watch pointer that must be cleared the same way.
+Bug-Debian: https://bugs.debian.org/1145446
+Forwarded: no
+Last-Update: 2026-10-10
+
+--- a/src/libply-splash-core/ply-terminal.c
++++ b/src/libply-splash-core/ply-terminal.c
+@@ -117,6 +117,7 @@
+ } ply_terminal_open_result_t;
+ 
+ static ply_terminal_open_result_t ply_terminal_open_device (ply_terminal_t *terminal);
++static void ply_terminal_detach_from_event_loop (ply_terminal_t *terminal);
+ 
+ ply_terminal_t *
+ ply_terminal_new (const char *device_name,
+@@ -129,6 +130,10 @@
+         terminal = calloc (1, sizeof(ply_terminal_t));
+ 
+         terminal->loop = ply_event_loop_get_default ();
++        ply_event_loop_watch_for_exit (terminal->loop,
++                                       (ply_event_loop_exit_handler_t)
++                                       ply_terminal_detach_from_event_loop,
++                                       terminal);
+         terminal->vt_change_closures = ply_list_new ();
+         terminal->input_closures = ply_list_new ();
+ 
