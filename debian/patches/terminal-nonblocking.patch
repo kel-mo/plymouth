@@ -1,11 +1,12 @@
 Author: Kel Modderman <kelvmod@gmail.com>
 Description: Keep the terminal fd non-blocking.
- ply_terminal_open() opens the tty O_NONBLOCK, then makes it blocking. Two
- readers share that fd, so a read with no data left blocks the event loop.
- PID 1 then blocks writing /dev/console into plymouth's full pty, and boot
- hangs after switch-root until a key is pressed. Leave the fd non-blocking
- and write through a loop that waits on EAGAIN while the terminal drains,
- giving up after a second without progress.
+ ply_terminal_open() opens the tty O_NONBLOCK, then makes it blocking. The
+ readers poll before they read, but if the input is gone by the time read()
+ runs, the read blocks the event loop. PID 1 then blocks writing
+ /dev/console into plymouth's full pty, and boot hangs after switch-root
+ until a key is pressed. Leave the fd non-blocking and write through a loop
+ that waits on EAGAIN while the terminal drains, giving up after a second
+ without progress.
 Bug-Debian: https://bugs.debian.org/1145446
 Forwarded: no
 Last-Update: 2026-10-10
