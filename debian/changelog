@@ -1,3 +1,19 @@
+plymouth (26.134.222-1.4) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * terminal-write-queue.patch: drop output a flush could not write
+    before a mode change, instead of writing it under the new settings.
+  * event-loop-dispatch-snapshot.patch: fix a use-after-free when a
+    handler stops watching another watch on the same fd, which the
+    output queue could trigger.
+  * buffer-reach-capacity-limit.patch: backport upstream 22c790fa, so a
+    large append no longer loops forever below the buffer's declared
+    limit.
+  * buffer-append-capacity.patch: don't loop forever appending exactly
+    the buffer capacity.
+
+ -- Kel Modderman <kelvmod@gmail.com>  Sat, 10 Oct 2026 19:59:08 +1000
+
 plymouth (26.134.222-1.3) unstable; urgency=medium
 
   * Non-maintainer upload.

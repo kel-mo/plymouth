@@ -5,4 +5,7 @@ drop-systemd-vconsole-setup-service.patch
 fallback-etc-default-keyboard.patch
 restore-ply_key_file_get_long.patch
 terminal-nonblocking.patch
+buffer-reach-capacity-limit.patch
+buffer-append-capacity.patch
+event-loop-dispatch-snapshot.patch
 terminal-write-queue.patch

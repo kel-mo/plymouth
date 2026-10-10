@@ -1,0 +1,25 @@
+Description: Reach the buffer capacity limit.
+ Buffer storage doubled from its initial allocation but stopped at 524288
+ bytes, below the declared ceiling of 1044480, so an append between the two
+ retried removal forever. terminal-write-queue.patch appends every
+ terminal write, so this is needed before it.
+Origin: upstream, https://gitlab.freedesktop.org/plymouth/plymouth/-/commit/22c790fa5ef023cb189204e80e2d3027559850a8
+Applied-Upstream: 22c790fa
+Last-Update: 2026-10-10
+
+--- a/src/libply/ply-buffer.c
++++ b/src/libply/ply-buffer.c
+@@ -57,10 +57,11 @@
+ {
+         assert (buffer != NULL);
+ 
+-        if ((buffer->capacity * 2) > PLY_BUFFER_MAX_BUFFER_CAPACITY)
++        if (buffer->capacity >= PLY_BUFFER_MAX_BUFFER_CAPACITY)
+                 return false;
+ 
+-        buffer->capacity *= 2;
++        buffer->capacity = MIN (buffer->capacity * 2,
++                                PLY_BUFFER_MAX_BUFFER_CAPACITY);
+ 
+         buffer->data = realloc (buffer->data, buffer->capacity);
+         return true;

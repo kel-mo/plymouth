@@ -1,0 +1,20 @@
+Author: Kel Modderman <kelvmod@gmail.com>
+Description: Don't loop forever appending exactly the buffer capacity.
+ ply_buffer_append_bytes() trimmed only appends longer than the capacity,
+ so an append of exactly the capacity could never fit and the loop spun
+ forever. terminal-write-queue.patch appends every terminal write.
+Bug-Debian: https://bugs.debian.org/1145446
+Forwarded: no
+Last-Update: 2026-10-10
+
+--- a/src/libply/ply-buffer.c
++++ b/src/libply/ply-buffer.c
+@@ -187,7 +187,7 @@
+         if (length == 0)
+                 return;
+ 
+-        if (length > PLY_BUFFER_MAX_BUFFER_CAPACITY) {
++        if (length >= PLY_BUFFER_MAX_BUFFER_CAPACITY) {
+                 bytes += length - (PLY_BUFFER_MAX_BUFFER_CAPACITY - 1);
+                 length = (PLY_BUFFER_MAX_BUFFER_CAPACITY - 1);
+         }

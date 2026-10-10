@@ -4,9 +4,9 @@ Description: Queue terminal output instead of waiting for room.
  slow terminal stalls the event loop until it drains, a wedged one for a
  second per write, and one slow terminal delays the others. Queue what the
  terminal can't take and write it as it drains, from an event loop watch.
- Graphics mode, termios changes and close drain the queue first, waiting
- at most a second without progress; a hangup drops it. The queue is a
- ply_buffer_t, capped at about 1 MiB.
+ Graphics mode, termios changes and close drain the queue first and drop
+ what is left after a second without progress; a hangup drops it too. The
+ queue is a ply_buffer_t, capped at about 1 MiB.
 Bug-Debian: https://bugs.debian.org/1145446
 Forwarded: no
 Last-Update: 2026-10-10
@@ -65,7 +65,7 @@ Last-Update: 2026-10-10
          if (tcsetattr (terminal->fd, TCSANOW, &terminal->original_term_attributes) != 0)
                  return false;
  
-@@ -370,60 +380,144 @@
+@@ -370,60 +380,149 @@
          free (string);
  }
  
@@ -138,26 +138,39 @@ Last-Update: 2026-10-10
 +                                                          terminal);
 +}
 +
-+/* Drains the queue before a change it must not be reordered with, giving up
-+ * after a second without progress
-+ */
++/* Drains the queue before a change it must not be reordered with, dropping
++ * what is left after a second without progress
+  */
+-bool
+-ply_terminal_write_bytes (ply_terminal_t *terminal,
+-                          const char     *bytes,
+-                          size_t          size)
 +static void
 +ply_terminal_flush_output (ply_terminal_t *terminal)
-+{
-+        double deadline;
-+
-+        if (terminal->fd < 0)
+ {
+-        size_t written = 0;
+         double deadline;
+ 
+-        assert (terminal != NULL);
+-
+         if (terminal->fd < 0)
+-                return false;
 +                return;
-+
-+        deadline = ply_get_timestamp () + 1.0;
-+
+ 
+         deadline = ply_get_timestamp () + 1.0;
+ 
+-        while (written < size) {
+-                ssize_t n;
 +        while (ply_buffer_get_size (terminal->output_buffer) > 0) {
 +                struct pollfd poll_data;
 +                size_t size_before;
 +                double remaining;
-+
+ 
+-                n = write (terminal->fd, bytes + written, size - written);
 +                size_before = ply_buffer_get_size (terminal->output_buffer);
-+
+ 
+-                if (n > 0) {
+-                        written += n;
 +                if (!ply_terminal_write_queued_output (terminal))
 +                        break;
 +
@@ -165,59 +178,15 @@ Last-Update: 2026-10-10
 +                        break;
 +
 +                if (ply_buffer_get_size (terminal->output_buffer) < size_before)
-+                        deadline = ply_get_timestamp () + 1.0;
-+
-+                remaining = deadline - ply_get_timestamp ();
-+                if (remaining <= 0)
-+                        break;
-+
-+                poll_data.fd = terminal->fd;
-+                poll_data.events = POLLOUT;
-+                poll_data.revents = 0;
-+                poll (&poll_data, 1, (int) (remaining * 1000) + 1);
-+        }
-+
-+        if (ply_buffer_get_size (terminal->output_buffer) == 0)
-+                ply_terminal_stop_writing_queued_output (terminal);
-+}
-+
-+/* The fd is non-blocking: what the terminal can't take yet is queued and
-+ * written as it drains
-  */
- bool
- ply_terminal_write_bytes (ply_terminal_t *terminal,
-                           const char     *bytes,
-                           size_t          size)
- {
--        size_t written = 0;
--        double deadline;
--
-         assert (terminal != NULL);
- 
-         if (terminal->fd < 0)
-                 return false;
- 
--        deadline = ply_get_timestamp () + 1.0;
--
--        while (written < size) {
--                ssize_t n;
-+        ply_buffer_append_bytes (terminal->output_buffer, bytes, size);
- 
--                n = write (terminal->fd, bytes + written, size - written);
--
--                if (n > 0) {
--                        written += n;
--                        deadline = ply_get_timestamp () + 1.0;
+                         deadline = ply_get_timestamp () + 1.0;
 -                        continue;
 -                }
-+        /* already waiting for room; keep the order */
-+        if (terminal->output_watch != NULL)
-+                return true;
  
 -                if (n < 0 && errno == EINTR)
 -                        continue;
-+        if (!ply_terminal_write_queued_output (terminal))
-+                return false;
++                remaining = deadline - ply_get_timestamp ();
++                if (remaining <= 0)
++                        break;
  
 -                if (n < 0 && errno == EAGAIN) {
 -                        struct pollfd poll_data;
@@ -233,22 +202,58 @@ Last-Update: 2026-10-10
 -                        poll (&poll_data, 1, (int) (remaining * 1000) + 1);
 -                        continue;
 -                }
-+        if (ply_buffer_get_size (terminal->output_buffer) == 0)
-+                return true;
++                poll_data.fd = terminal->fd;
++                poll_data.events = POLLOUT;
++                poll_data.revents = 0;
++                poll (&poll_data, 1, (int) (remaining * 1000) + 1);
++        }
  
 -                break;
--        }
++        if (ply_buffer_get_size (terminal->output_buffer) > 0) {
++                ply_trace ("dropping %zu bytes the terminal did not take",
++                           ply_buffer_get_size (terminal->output_buffer));
++                ply_buffer_clear (terminal->output_buffer);
+         }
+ 
+-        return written == size;
++        ply_terminal_stop_writing_queued_output (terminal);
++}
++
++/* The fd is non-blocking: what the terminal can't take yet is queued and
++ * written as it drains
++ */
++bool
++ply_terminal_write_bytes (ply_terminal_t *terminal,
++                          const char     *bytes,
++                          size_t          size)
++{
++        assert (terminal != NULL);
++
++        if (terminal->fd < 0)
++                return false;
++
++        ply_buffer_append_bytes (terminal->output_buffer, bytes, size);
++
++        /* already waiting for room; keep the order */
++        if (terminal->output_watch != NULL)
++                return true;
++
++        if (!ply_terminal_write_queued_output (terminal))
++                return false;
++
++        if (ply_buffer_get_size (terminal->output_buffer) == 0)
++                return true;
++
 +        if (terminal->loop != NULL)
 +                ply_terminal_start_writing_queued_output (terminal);
 +        else
 +                ply_terminal_flush_output (terminal);
- 
--        return written == size;
++
 +        return true;
  }
  
  static void
-@@ -487,6 +581,8 @@
+@@ -487,6 +586,8 @@
  {
          ply_trace ("tty disconnected (fd %d)", terminal->fd);
          terminal->fd_watch = NULL;
@@ -257,7 +262,7 @@ Last-Update: 2026-10-10
          terminal->fd = -1;
          terminal->number_of_reopen_tries = 0;
  
-@@ -770,6 +866,10 @@
+@@ -770,6 +871,10 @@
  
          terminal->is_open = false;
  
@@ -268,7 +273,7 @@ Last-Update: 2026-10-10
          ply_terminal_stop_watching_for_vt_changes (terminal);
  
          ply_trace ("restoring color palette");
-@@ -862,6 +962,8 @@
+@@ -862,6 +967,8 @@
                  break;
  
          case PLY_TERMINAL_MODE_GRAPHICS:
@@ -277,7 +282,7 @@ Last-Update: 2026-10-10
                  if (ioctl (terminal->fd, KDSETMODE, KD_GRAPHICS) < 0)
                          return;
                  break;
-@@ -884,6 +986,7 @@
+@@ -884,6 +991,7 @@
          assert (terminal != NULL);
          terminal->loop = NULL;
          terminal->fd_watch = NULL;
@@ -285,7 +290,7 @@ Last-Update: 2026-10-10
  }
  
  static void
-@@ -948,6 +1051,7 @@
+@@ -948,6 +1056,7 @@
  
          free_vt_change_closures (terminal);
          free_input_closures (terminal);
